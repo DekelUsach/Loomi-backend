@@ -1,7 +1,7 @@
 import express from 'express';
 import dotenv from 'dotenv';
 import userRoutes from './routes/userRoutes.js';
-
+process.env['NODE_TLS_REJECT_UNAUTHORIZED'] = '0';
 dotenv.config();
 const app = express();
 
