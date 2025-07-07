@@ -33,6 +33,8 @@ export const getUserById = async (req, res) => {
 
   res.json(data);
 };
+
+
 //Crea un nuevo usuario en la base de datos
 export const createUser = async (req, res) => {
   const { username, mail, gems, energy, password, level } = req.body;
@@ -41,7 +43,8 @@ export const createUser = async (req, res) => {
   const { data: authData, error: authError } = await supabase.auth.admin.createUser({
     email: mail,
     password: password,
-  });
+    email_confirm: true,
+    });
 
   if (authError) {
     return res.status(500).json({ error: authError.message });
@@ -54,7 +57,6 @@ export const createUser = async (req, res) => {
     .insert([{
       user_id: authData.user.id, // UUID generado por Supabase Auth
       username,
-      mail, // opcional, si lo quieres mostrar en tu app
       gems,
       energy,
       level

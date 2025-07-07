@@ -8,9 +8,7 @@ router.get('/:id', getUserById); // Esta ruta es un ejemplo de como se puede acc
 router.post('/', createUser); //Esta ruta es un ejemplo de como se puede crear un nuevo usuario
 
 
-router.get('/hola', (req, res) => {
-  res.send('¡Hola desde /api/users/hola!');
-});
+
 
 // aca se pueden agregar más rutas relacionadas con los usuarios
 
