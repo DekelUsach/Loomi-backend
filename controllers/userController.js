@@ -89,3 +89,26 @@ export const updateUser = async (req, res) => {
 
   res.json(data);
 };
+
+
+
+
+
+// Base de textos
+
+// const textos (texto) => {
+  // esta funcion se encuentra en standBy, es necesario que se implementen las funcionalidades de inteligencia artificial
+  // let parrafos = []; // con IA 
+  // let titulo = 'lo que haga la  IA';
+
+  // insert into userLoadedTexts titulo = titulo;
+
+  // Aca debería empezar a recorrer el array, crear las imagenes e insertar los parrafos
+  // De la funcionalidad con IA debería salir la URL de la imagen creada guardada en Storage y el contenido del párrafo y el orden en el que vaya.
+  
+
+  // foreach(...){
+    // insert into userLoadedParagraph content = contenido, imageURL = URL que devuelva la ia, order = orden que haya devuelto la ia, idText = id del texto del scope de la funcion.
+  // }
+
+// }
