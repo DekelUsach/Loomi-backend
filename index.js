@@ -13,6 +13,8 @@ const corsOptions = {
 app.use(cors(corsOptions));
 
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
 app.use('/users', userRoutes);
 app.use('/texts', textRoutes);
 

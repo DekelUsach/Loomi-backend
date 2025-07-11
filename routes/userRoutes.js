@@ -1,15 +1,20 @@
+// routes/userRoutes.js
 import { Router } from 'express';
-import { getAllUsers, getUserById, createUser, loginUser } from '../controllers/userController.js';
-import { getProfile } from '../controllers/profileController.js'
+import {
+  getAllUsers,
+  getUserById,
+  createUser,
+  loginUser,
+  updateUser
+} from '../controllers/userController.js';
+import { authenticate } from '../middleware/auth.js';
 
 const router = Router();
 
 router.get('/', getAllUsers);
 router.get('/:id', getUserById);
 router.post('/', createUser);
-router.post('/login', loginUser); // <--- agregá esto
-router.get('/profile', getProfile);
-
-
+router.post('/login', loginUser);
+router.put('/:id', authenticate, updateUser);
 
 export default router;
