@@ -1,0 +1,3 @@
+# Explicación de Controllers
+
+En esta carpeta se definen las funciones que manejan las peticiones relacionadas con los distintos espacios de nuestra base de datos. Los archivos se pueden dividir en base al rol va a manejar cada uno de ellos. Por ejemplo, si se quiere manejar los textos, se usara textosController.js y dentro de ese archivo se pueden definirán las funciones que manejan las peticiones relacionadas con los textos. Esto nomas da mas organizacion.

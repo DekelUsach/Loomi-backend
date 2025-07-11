@@ -1,6 +1,6 @@
 import supabase from '../config/supabaseClient.js';
 // En este archivo se definen las funciones que manejan las peticiones relacionadas con los usuarios. En realidad,
-// los archivos se pueden dividir en que rol va a manjear cada uno de ellos. Por ejemplo, si se quiere manejar
+// los archivos se pueden dividir en que rol va a manejar cada uno de ellos. Por ejemplo, si se quiere manejar
 // los textos, se puede crear un archivo llamado textosController.js y dentro de ese archivo
 // se pueden definir las funciones que manejan las peticiones relacionadas con los textos. Esto nomas da mas organizacion.
 export const getAllUsers = async (req, res) => {
@@ -27,7 +27,7 @@ export const getUserById = async (req, res) => {
     return res.status(500).json({ error: error.message });
   }
 
-  if (!data) {
+  if (!data || data.length === 0) {
     return res.status(404).json({ message: 'User not found' });
   }
 
