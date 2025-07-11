@@ -75,6 +75,40 @@ export const updateUser = async (req, res) => {
 };
 
 
+// Metodo Login
+
+export const loginUser = async (req, res) => {
+  const { email, password } = req.body;
+
+  // Verificar si existe el email en tu tabla personalizada (Users)
+  const { data: userData, error: userError } = await supabase
+    .from('Users')
+    .select('*')
+    .eq('mail', email) // Asegurate que la columna sea "mail"
+    .single();
+
+  if (userError || !userData) {
+    return res.status(404).json({ error: 'El email no está registrado.' });
+  }
+
+  // Hacer login con Supabase Auth
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+  });
+
+  if (error) {
+    return res.status(401).json({ error: 'La contraseña es incorrecta.' });
+  }
+
+  res.status(200).json({
+    message: 'Login exitoso',
+    user: data.user,
+    session: data.session
+  });
+};
+
+
 
 
 // Base de textos
