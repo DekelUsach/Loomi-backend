@@ -1,9 +1,15 @@
 import { Router } from 'express';
-import { getLoadedTextsById, getAllLoadedParagraphsByIdText } from '../controllers/textController.js';
+import { getAllUserTextsByUserId, getAllUserParagraphsByIdText, insertUserText, getLoadedTextsById, getAllLoadedParagraphsByIdText } from '../controllers/textController.js';
 
 const router = Router();
 
-router.get('/loaded/texts/:id', getLoadedTextsById);
-router.get('/loaded/paragraphs/:id', getAllLoadedParagraphsByIdText);
+/* Userloaded */
+router.get('/userloaded/texts/:id', getAllUserTextsByUserId)
+router.get('/userloaded/paragraphs/:id', getAllUserParagraphsByIdText)
+router.get('/userloaded/insert/:id', insertUserText)
+
+/* Preloaded */
+router.get('/preloaded/texts/:id', getLoadedTextsById);
+router.get('/preloaded/paragraphs/:id', getAllLoadedParagraphsByIdText);
 
 export default router;
