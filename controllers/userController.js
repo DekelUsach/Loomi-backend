@@ -26,9 +26,16 @@ export const createUser = async (req, res) => {
   const { data, error } = await supabase
     .from('users')
     .insert([{ id: authData.user.id, email, ...rest }]);
-  if (error) return res.status(500).json({ error: error.message });
+  if (profileError) return res.status(500).json({ error: profileError.message });
 
-  res.status(201).json({ user: data[0] });
+  //Loguea al usuario
+  const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({ email, password });
+  if (loginError) return res.status(400).json({ error: loginError.message });
+
+  res.status(201).json({
+    user: profileData[0],
+    session: loginData.session
+  });
 };
 
 // POST /users/login
