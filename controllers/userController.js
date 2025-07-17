@@ -22,18 +22,20 @@ export const createUser = async (req, res) => {
   const { data: authData, error: authError } = await supabase.auth.signUp({ email, password });
   if (authError) return res.status(400).json({ error: authError.message });
 
-  // opcional: guardar datos adicionales en tabla 'users'
+  // opcional: guardar datos adicionales en tabla 'Users'
   const { data, error } = await supabase
-    .from('users')
-    .insert([{ id: authData.user.id, email, ...rest }]);
-  if (profileError) return res.status(500).json({ error: profileError.message });
+    .from('Users')
+    .insert([{ user_id: authData.user.id, ...rest }]);
+  if (error) return res.status(500).json({ error: error.message });
 
   //Loguea al usuario
   const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({ email, password });
   if (loginError) return res.status(400).json({ error: loginError.message });
 
+  if (error) return res.status(500).json({ error: error.message });
+
   res.status(201).json({
-    user: profileData[0],
+    user: data[0],
     session: loginData.session
   });
 };
@@ -72,7 +74,7 @@ export const updateUser = async (req, res) => {
   }
 
   const { data, error } = await supabase
-    .from('users')
+    .from('Users')
     .update(updates)
     .eq('id', id)
     .single();
