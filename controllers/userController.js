@@ -20,7 +20,7 @@ export const getUserById = async (req, res) => {
 export const createUser = async (req, res) => {
   try {
     console.log('Body recibido:', req.body);
-    const { username, email, password, ...rest } = req.body;
+    const { username, email, password } = req.body;
 
     if (!username) {
       return res.status(400).json({ error: 'El campo username es obligatorio.' });
@@ -35,14 +35,14 @@ export const createUser = async (req, res) => {
     }
 
     // Guarda datos adicionales
-    const { data, error } = await supabase
+    const { data: userData, error: insertError } = await supabase
       .from('Users')
-      .insert([{ user_id: authData.user.id, username, ...rest }])
+      .insert([{ user_id: authData.user.id, username, gems: 100, energy: 100, level: 1 }])
       .select();
-      console.log('Insert data:', data, 'Insert error:', error);
-    if (error) {
-      console.error('Insert Users error:', error);
-      return res.status(500).json({ error: error.message });
+      
+    if (insertError) {
+      console.error('Insert Users error:', insertError);
+      return res.status(500).json({ error: insertError.message });
     }
 
     // Login posterior
@@ -57,7 +57,7 @@ export const createUser = async (req, res) => {
     }
 
     res.status(201).json({
-      user: data[0],
+      user: userData[0],
       session: loginData.session
     });
 
