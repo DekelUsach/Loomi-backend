@@ -18,51 +18,54 @@ export const getUserById = async (req, res) => {
 
 // POST /users
 export const createUser = async (req, res) => {
-  const { email, password, ...rest } = req.body;
-  const { data: authData, error: authError } = await supabase.auth.signUp({ email, password });
-  if (authError) return res.status(400).json({ error: authError.message });
+  try {
+    console.log('Body recibido:', req.body);
+    const { username, email, password, ...rest } = req.body;
 
-  // opcional: guardar datos adicionales en tabla 'Users'
-  const { data, error } = await supabase
-    .from('Users')
-    .insert([{ user_id: authData.user.id, ...rest }]);
-  if (error) return res.status(500).json({ error: error.message });
+    if (!username) {
+      return res.status(400).json({ error: 'El campo username es obligatorio.' });
+    }
 
-  //Loguea al usuario
-  const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({ email, password });
-  if (loginError) return res.status(400).json({ error: loginError.message });
+    // Crea el usuario en auth.users.
+    const { data: authData, error: authError } = await supabase.auth.signUp({ email, password });
+    if (authError) {
+      console.error('signUp error:', authError);
+      console.log('authData:', authData, 'authError:', authError);
+      return res.status(400).json({ error: authError.message });
+    }
 
-  if (error) return res.status(500).json({ error: error.message });
+    // Guarda datos adicionales
+    const { data, error } = await supabase
+      .from('Users')
+      .insert([{ user_id: authData.user.id, username, ...rest }])
+      .select();
+      console.log('Insert data:', data, 'Insert error:', error);
+    if (error) {
+      console.error('Insert Users error:', error);
+      return res.status(500).json({ error: error.message });
+    }
 
-  res.status(201).json({
-    user: data[0],
-    session: loginData.session
-  });
+    // Login posterior
+    console.log('Intentando login después de signup...');
+    const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({ email, password });
+    if (loginError) {
+      console.error('Login after signup error:', loginError);
+      return res.status(201).json({
+        user: data[0],
+        message: 'Usuario creado pero fallo el login automático.'
+      });
+    }
+
+    res.status(201).json({
+      user: data[0],
+      session: loginData.session
+    });
+
+  } catch (err) {
+    console.error('Unexpected error:', err);
+    res.status(500).json({ error: 'Error inesperado en el servidor.' });
+  }
 };
-
-// POST /users/login
-// export const loginUser = async (req, res) => {
-//   const { email, password } = req.body;
-//   if (!email || !password) {
-//     return res.status(400).json({ error: 'Faltan email o password' });
-//   }
-
-//   const { data, error } = await supabase.auth.signInWithPassword({
-//     email,
-//     password
-//   });
-
-//   if (error || !data.session) {
-//     return res.status(401).json({ error: error?.message || 'Credenciales inválidas' });
-//   }
-
-//   // Devolvemos al cliente los tokens y datos de usuario
-//   return res.json({
-//     accessToken: data.session.access_token,
-//     refreshToken: data.session.refresh_token,
-//     user: data.user
-//   });
-// };
 
 // PUT /users/:id
 export const updateUser = async (req, res) => {
@@ -83,31 +86,21 @@ export const updateUser = async (req, res) => {
   res.json(data);
 };
 
-
-// Metodo Login
-
+// POST /users/login
 export const loginUser = async (req, res) => {
   const { email, password } = req.body;
 
-  // Verificar si existe el email en tu tabla personalizada (Users)
-  const { data: userData, error: userError } = await supabase
-    .from('Users')
-    .select('*')
-    .eq('mail', email) // Asegurate que la columna sea "mail"
-    .single();
-
-  if (userError || !userData) {
-    return res.status(404).json({ error: 'El email no está registrado.' });
-  }
-
-  // Hacer login con Supabase Auth
+  // Loguea al usuario
   const { data, error } = await supabase.auth.signInWithPassword({
     email,
     password,
   });
+  if (error) return res.status(400).json({ error: error.message });
 
-  if (error) {
-    return res.status(401).json({ error: 'La contraseña es incorrecta.' });
+  const user = data.user;
+
+  if (!user) {
+    return res.status(401).json({ error: 'No se pudo autenticar el usuario.' });
   }
 
   res.status(200).json({
@@ -116,9 +109,6 @@ export const loginUser = async (req, res) => {
     session: data.session
   });
 };
-
-
-
 
 // Base de textos
 
