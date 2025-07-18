@@ -67,6 +67,7 @@ export const createUser = async (req, res) => {
   }
 };
 
+/* Login/Register */
 // PUT /users/:id
 export const updateUser = async (req, res) => {
   const { id } = req.params;
@@ -110,6 +111,45 @@ export const loginUser = async (req, res) => {
   });
 };
 
+/* Profile */
+// GET /users/profile
+export const getProfile = async (req, res) => {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader) {
+    return res.status(401).json({ error: 'Falta token de autorización' });
+  }
+
+  const token = authHeader.split(' ')[1];
+
+  // Verifica token con Supabase Auth.
+  const { data: authData, error: authError } = await supabase.auth.getUser(token);
+
+  if (authError || !authData?.user) {
+    return res.status(401).json({ error: 'Token inválido o expirado' });
+  }
+
+  const userId = authData.user.id;
+
+  // Busca los datos del usuario.
+  const { data: userData, error: userError } = await supabase
+    .from('Users')
+    .select('*')
+    .eq('user_id', userId)
+    .single();
+
+  if (userError || !userData) {
+    return res.status(404).json({ error: 'No se encontraron datos del usuario' });
+  }
+
+  res.status(200).json({
+    user: {
+      ...userData,
+      email: authData.user.email,
+      authId: authData.user.id,
+    }
+  });
+};
 // Base de textos
 
 // const textos (texto) => {
