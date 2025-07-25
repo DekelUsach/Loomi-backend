@@ -17,7 +17,11 @@ export const getAllUserTextsByUserId = async (req, res) => {
         return res.status(404).json({ message: 'Text not found' });
     }
 
-    res.json(data);
+    res.status(200).json({
+        textList: {
+            ...data
+        }
+    });
 }
 
 export const getAllUserParagraphsByIdText = async (req, res) => {
