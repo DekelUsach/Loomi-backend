@@ -147,4 +147,3 @@ export const getAllLoadedParagraphsByIdText = async (req, res) => {
 
     res.json(data);
 }
-
