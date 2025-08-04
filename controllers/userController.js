@@ -3,7 +3,7 @@ import supabase from '../config/supabaseClient.js';
 
 // GET /users
 export const getAllUsers = async (req, res) => {
-  const { data, error } = await supabase.from('users').select('*');
+  const { data, error } = await supabase.from('Users').select('*');
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 };
@@ -11,7 +11,7 @@ export const getAllUsers = async (req, res) => {
 // GET /users/:id
 export const getUserById = async (req, res) => {
   const { id } = req.params;
-  const { data, error } = await supabase.from('users').select('*').eq('id', id).single();
+  const { data, error } = await supabase.from('Users').select('*').eq('id', id).single();
   if (error) return res.status(404).json({ error: error.message });
   res.json(data);
 };
@@ -42,6 +42,7 @@ export const createUser = async (req, res) => {
       
     if (insertError) {
       console.error('Insert Users error:', insertError);
+      console.log('>>> session:', data.session)
       return res.status(500).json({ error: insertError.message });
     }
 
@@ -50,15 +51,19 @@ export const createUser = async (req, res) => {
     const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({ email, password });
     if (loginError) {
       console.error('Login after signup error:', loginError);
+      console.log('>>> session:', data.session)
       return res.status(201).json({
         user: data[0],
         message: 'Usuario creado pero fallo el login automático.'
       });
+      ;
     }
+    console.log('>>> session:', data.session);
 
     res.status(201).json({
       user: userData[0],
       session: loginData.session
+      
     });
 
   } catch (err) {
@@ -103,6 +108,7 @@ export const loginUser = async (req, res) => {
   if (!user) {
     return res.status(401).json({ error: 'No se pudo autenticar el usuario.' });
   }
+  console.log('>>> session:', data.session);
 
   res.status(200).json({
     message: 'Login exitoso',
@@ -150,6 +156,37 @@ export const getProfile = async (req, res) => {
     }
   });
 };
+// DELETE /users/:id
+export const deleteUser = async (req, res) => {
+  const userId = req.user.id; // ya viene del token
+
+  try {
+    // 1. Borra de tu tabla Users
+    const { error: deleteDataError } = await supabase
+      .from('Users')
+      .delete()
+      .eq('user_id', userId);
+
+    if (deleteDataError) {
+      console.error('Error al borrar datos de Users:', deleteDataError);
+      return res.status(500).json({ error: deleteDataError.message });
+    }
+
+    // 2. Borra al usuario de Supabase Auth
+    const { error: deleteAuthError } = await supabase.auth.admin.deleteUser(userId);
+
+    if (deleteAuthError) {
+      console.error('Error al borrar usuario en Auth:', deleteAuthError);
+      return res.status(500).json({ error: deleteAuthError.message });
+    }
+
+    res.status(200).json({ message: 'Usuario eliminado exitosamente.' });
+  } catch (err) {
+    console.error('Error inesperado al eliminar usuario:', err);
+    res.status(500).json({ error: 'Error inesperado en el servidor.' });
+  }
+};
+
 // Base de textos
 
 // const textos (texto) => {
