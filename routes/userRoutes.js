@@ -5,6 +5,7 @@ import {
   getUserById,
   createUser,
   loginUser,
+  postAvatar,
   updateUser,
   getProfile,
   deleteUser
@@ -18,6 +19,7 @@ router.get('/profile', getProfile);
 router.get('/:id', getUserById);
 router.post('/', createUser);
 router.post('/login', loginUser);
+router.post('/avatar', postAvatar);
 router.put('/:id', authenticate, updateUser);
 router.delete('/me', deleteUser)
 export default router;

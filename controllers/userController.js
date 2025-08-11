@@ -1,5 +1,7 @@
 // controllers/userController.js
 import supabase from '../config/supabaseClient.js';
+import multer from 'multer'
+const upload = multer()
 
 // GET /users
 export const getAllUsers = async (req, res) => {
@@ -19,7 +21,6 @@ export const getUserById = async (req, res) => {
 // POST /users
 export const createUser = async (req, res) => {
   try {
-    console.log('Body recibido:', req.body);
     const { username, email, password } = req.body;
 
     if (!username) {
@@ -71,6 +72,44 @@ export const createUser = async (req, res) => {
     res.status(500).json({ error: 'Error inesperado en el servidor.' });
   }
 };
+
+// POST /avatar
+export const postAvatar = async (req, res) => {
+  try {
+    const user_id = req.body.user_id
+    const file = req.file
+
+    if (!file) {
+      return res.status(400).json({ error: 'No file uploaded' })
+    }
+
+    const fileExt = file.originalname.split('.').pop()
+    const filePath = `${user_id}/avatar.${fileExt}`
+
+    const { error: uploadError } = await supabase
+      .storage
+      .from('avatar')
+      .upload(filePath, file.buffer, { upsert: true })
+
+    if (uploadError) {
+      return res.status(500).json({ error: uploadError.message })
+    }
+
+    const { error: updateError } = await supabase
+      .from('Users')
+      .update({ avatar_url: filePath })
+      .eq('user_id', user_id)
+
+    if (updateError) {
+      return res.status(500).json({ error: updateError.message })
+    }
+
+    return res.status(200).json({ message: 'Avatar uploaded', path: filePath })
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Internal server error' })
+  }
+}
 
 /* Login/Register */
 // PUT /users/:id
