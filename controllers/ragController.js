@@ -1,8 +1,9 @@
 import multer from 'multer';
 import supabase from '../config/supabaseClient.js';
-import { indexStory, askQuestion, allocateNextStoryId, releaseMemoryForStory } from '../rag/index.js';
+import { indexStory, askQuestion, allocateNextStoryId, releaseMemoryForStory, storyExists } from '../rag/index.js';
 import { extractTextFromPdf, extractTextFromDocx, ocrSpaceExtract } from '../rag/ingest.js';
 import { splitTextWithGemini, splitIntoParagraphArray } from '../rag/gemini-splitter.js';
+import fetch from 'node-fetch';
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -35,9 +36,22 @@ async function getUsersRowIdForAuthId(authId) {
     .from('Users')
     .select('id')
     .eq('user_id', authId)
-    .single();
-  if (error) return null;
-  const rowId = Number.isFinite(Number(data?.id)) ? Number(data.id) : null;
+    .maybeSingle();
+  let rowId = Number.isFinite(Number(data?.id)) ? Number(data.id) : null;
+  if (!rowId) {
+    try {
+      const ins = await supabase
+        .from('Users')
+        .insert({ user_id: authId })
+        .select('id')
+        .single();
+      if (!ins.error && Number.isFinite(Number(ins.data?.id))) {
+        rowId = Number(ins.data.id);
+      }
+    } catch (_) {
+      // ignore
+    }
+  }
   return rowId;
 }
 
@@ -80,14 +94,14 @@ async function insertPreLoadedTextWithOptionalFullText({ title, fullText, ownerA
   return fb.data.id;
 }
 
-async function insertPreLoadedParagraphs({ idText, paragraphs }) {
+async function insertPreLoadedParagraphs({ idText, paragraphs, imageUrls }) {
   const list = Array.isArray(paragraphs) ? paragraphs : [];
   if (list.length === 0) return 0;
   let nextId = await getNextId('preLoadedParagraphs');
   const rows = list.map((content, idx) => ({
     id: nextId + idx,
     content: String(content || ''),
-    imageURL: null,
+    imageURL: Array.isArray(imageUrls) ? (imageUrls[idx] || null) : null,
     order: idx + 1,
     idText: Number(idText)
   }));
@@ -144,10 +158,52 @@ export async function uploadAndIndex(req, res) {
     const title = clientTitle || deriveTitleFromText(fullText);
     console.log(`[RAG] Título a guardar: "${title}"`);
 
+    // Generar imágenes por párrafo y subir a supabase storage
+    const bucket = process.env.PARAGRAPH_IMAGES_BUCKET || 'paragraph-images';
+    async function ensureBucket() {
+      try {
+        // Requiere service role; si falla asumimos que ya existe
+        await supabase.storage.createBucket(bucket, { public: true });
+      } catch (_) {}
+    }
+    await ensureBucket();
+
+    async function createImageForText(text, name) {
+      try {
+        const prompt = `${text}`;
+        console.log('[RAG] Pollinations prompt', `(${name})`, ':', String(prompt).slice(0, 180), '...');
+        const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=768&height=768&model=flux&quality=medium`;
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error(`pollinations_failed_${resp.status}`);
+        const arr = Buffer.from(await resp.arrayBuffer());
+        const path = `${String(name)}.jpg`;
+        const up = await supabase.storage.from(bucket).upload(path, arr, {
+          contentType: 'image/jpeg',
+          upsert: true
+        });
+        if (up.error) throw new Error(up.error.message);
+        const pub = await supabase.storage.from(bucket).getPublicUrl(path);
+        const publicUrl = pub?.data?.publicUrl || null;
+        if (publicUrl) console.log('[RAG] Imagen guardada en bucket', bucket, '→', publicUrl);
+        return publicUrl;
+      } catch (e) {
+        console.warn('[RAG] imagen de párrafo falló:', e?.message || e);
+        return null;
+      }
+    }
+
+    const imageUrls = [];
+    for (let i = 0; i < effectiveParagraphs.length; i += 1) {
+      const name = `text-${Date.now()}-${i + 1}`;
+      // Secuencial para no saturar servicios gratuitos
+      const imgUrl = await createImageForText(String(effectiveParagraphs[i] || ''), name);
+      imageUrls.push(imgUrl);
+    }
+
     // Guardar en Supabase (preLoadedTexts y preLoadedParagraphs)
     const idTextPre = await insertPreLoadedTextWithOptionalFullText({ title, fullText, ownerAuthId: authUser.id });
     console.log(`[RAG] Insert preLoadedTexts OK. id=${idTextPre}`);
-    await insertPreLoadedParagraphs({ idText: idTextPre, paragraphs: effectiveParagraphs });
+    await insertPreLoadedParagraphs({ idText: idTextPre, paragraphs: effectiveParagraphs, imageUrls });
     console.log(`[RAG] Insert preLoadedParagraphs OK. count=${effectiveParagraphs.length}`);
 
     // Crear registro asociado al usuario en userLoadedTexts y usar ese id para indexar
@@ -168,7 +224,7 @@ export async function uploadAndIndex(req, res) {
           try {
             const userParagraphRows = effectiveParagraphs.map((content, idx) => ({
               content: String(content || ''),
-              imageURL: null,
+              imageURL: Array.isArray(imageUrls) ? (imageUrls[idx] || null) : null,
               order: idx + 1,
               idText: Number(idTextUser)
             }));
@@ -226,11 +282,67 @@ export async function ask(req, res) {
     if (!textId || !question) return res.status(400).json({ error: 'Faltan parámetros: textId y question' });
     console.log(`[RAG] Ask: textId=${textId} question="${String(question).slice(0,120)}..."`);
 
+    // Si la historia no está indexada aún en LanceDB, la reconstruimos desde Supabase y la indexamos on-demand
+    let exists = false;
+    try { exists = await storyExists(String(textId)); } catch (_) { exists = false; }
+    if (!exists) {
+      console.log('[RAG] storyId no encontrado en LanceDB. Reconstruyendo desde Supabase...');
+      let title = '';
+      let fullText = '';
+      try {
+        // Preferimos userLoadedParagraphs y userLoadedTexts
+        const { data: utRow } = await supabase
+          .from('userLoadedTexts')
+          .select('title')
+          .eq('id', textId)
+          .maybeSingle();
+        if (utRow?.title) title = String(utRow.title);
+        const { data: uparas } = await supabase
+          .from('userLoadedParagraphs')
+          .select('content, order')
+          .eq('idText', textId)
+          .order('order', { ascending: true });
+        if (Array.isArray(uparas) && uparas.length) {
+          fullText = uparas.map(p => String(p.content || '')).join('\n\n');
+        }
+        if (!fullText) {
+          // Fallback a preLoaded
+          const { data: ptRow } = await supabase
+            .from('preLoadedTexts')
+            .select('title')
+            .eq('id', textId)
+            .maybeSingle();
+          if (ptRow?.title && !title) title = String(ptRow.title);
+          const { data: pparas } = await supabase
+            .from('preLoadedParagraphs')
+            .select('content, order')
+            .eq('idText', textId)
+            .order('order', { ascending: true });
+          if (Array.isArray(pparas) && pparas.length) {
+            fullText = pparas.map(p => String(p.content || '')).join('\n\n');
+          }
+        }
+      } catch (e) {
+        console.warn('[RAG] reconstrucción de texto falló:', e?.message || e);
+      }
+      if (fullText) {
+        try {
+          await indexStory(String(textId), fullText, title);
+          console.log('[RAG] Index on-demand OK');
+        } catch (e) {
+          console.warn('[RAG] Index on-demand falló:', e?.message || e);
+        }
+      }
+    }
+
     const answer = await askQuestion(String(textId), String(question));
     console.log('[RAG] Ask → respuesta lista (longitud):', (answer || '').length);
     return res.status(200).json({ answer });
   } catch (err) {
-    return res.status(500).json({ error: err.message || 'Error inesperado' });
+    console.error('[RAG] ask error:', err?.stack || err?.message || err);
+    // Nunca romper al cliente: devolvemos una respuesta fallback con 200
+    const safe = 'No pude generar una respuesta en este momento. Probá de nuevo en unos segundos.';
+    return res.status(200).json({ answer: safe, error: 'degraded' });
   }
 }
 

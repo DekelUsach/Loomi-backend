@@ -2,3 +2,5 @@ para hacer que funcione la extraccion de caracteres de un archivo .pdf, se deben
 
       winget install -e --id GraphicsMagick.GraphicsMagick --silent
       winget install -e --id ArtifexSoftware.Ghostscript --silent
+
+para creacion de imagenes, se usa  pollinations.ai
