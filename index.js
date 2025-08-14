@@ -3,6 +3,8 @@ import dotenv from 'dotenv';
 import userRoutes from './routes/userRoutes.js';
 import textRoutes from './routes/textRoutes.js';
 import energyAndGemsRoutes from './routes/energyAndGemsRoutes.js';
+import ragRoutes from './routes/ragRoutes.js';
+import { getGems } from './controllers/energyAndGemsController.js';
 process.env['NODE_TLS_REJECT_UNAUTHORIZED'] = '0';
 dotenv.config();
 const app = express();
@@ -19,6 +21,9 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/users', userRoutes);
 app.use('/texts', textRoutes);
 app.use('/energy', energyAndGemsRoutes)
+app.use('/rag', ragRoutes);
+// Alias directo para gems: /gems/:user_id
+app.get('/gems/:user_id', getGems);
 
 const PORT = process.env.PORT || 3000;
 

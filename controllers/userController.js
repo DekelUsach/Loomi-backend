@@ -43,7 +43,6 @@ export const createUser = async (req, res) => {
       
     if (insertError) {
       console.error('Insert Users error:', insertError);
-      console.log('>>> session:', data.session)
       return res.status(500).json({ error: insertError.message });
     }
 
@@ -52,19 +51,15 @@ export const createUser = async (req, res) => {
     const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({ email, password });
     if (loginError) {
       console.error('Login after signup error:', loginError);
-      console.log('>>> session:', data.session)
       return res.status(201).json({
-        user: data[0],
-        message: 'Usuario creado pero fallo el login automático.'
+        user: userData?.[0] || null,
+        message: 'Usuario creado pero falló el login automático.'
       });
-      ;
     }
-    console.log('>>> session:', data.session);
 
     res.status(201).json({
       user: userData[0],
-      session: loginData.session
-      
+      session: loginData?.session || null
     });
 
   } catch (err) {
@@ -147,7 +142,7 @@ export const loginUser = async (req, res) => {
   if (!user) {
     return res.status(401).json({ error: 'No se pudo autenticar el usuario.' });
   }
-  console.log('>>> session:', data.session);
+  // removed verbose session logging
 
   res.status(200).json({
     message: 'Login exitoso',

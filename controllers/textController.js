@@ -13,15 +13,8 @@ export const getAllUserTextsByUserId = async (req, res) => {
         return res.status(500).json({ error: error.message });
     }
 
-    if (!data || data.length === 0) {
-        return res.status(404).json({ message: 'Text not found' });
-    }
-
-    res.status(200).json({
-        textList: {
-            ...data
-        }
-    });
+    const list = Array.isArray(data) ? data : [];
+    res.status(200).json({ textList: { ...list } });
 }
 
 export const getAllUserParagraphsByIdText = async (req, res) => {
@@ -34,12 +27,7 @@ export const getAllUserParagraphsByIdText = async (req, res) => {
     if (error) {
         return res.status(500).json({ error: error.message });
     }
-
-    if (!data || data.length === 0) {
-        return res.status(404).json({ message: 'Text not found' });
-    }
-
-    res.json(data);
+    res.json(Array.isArray(data) ? data : []);
 }
 
 export const insertUserText = async (req, res) => {
@@ -112,6 +100,17 @@ export const insertUserParagraphs = async (req, res) => {
 }
 
 /* Pre Loaded Texts */
+export const getAllPreloadedTexts = async (_req, res) => {
+    const { data, error } = await supabase
+        .from('preLoadedTexts')
+        .select('*')
+        .order('id', { ascending: true });
+    if (error) {
+        return res.status(500).json({ error: error.message });
+    }
+    res.status(200).json({ list: Array.isArray(data) ? data : [] });
+};
+
 export const getLoadedTextsById = async (req, res) => {
     const { id } = req.params;
     const { data, error } = await supabase

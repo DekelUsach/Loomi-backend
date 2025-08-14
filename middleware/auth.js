@@ -12,8 +12,7 @@ export const authenticate = async (req, res, next) => {
   if (error || !user) {
     return res.status(401).json({ error: 'Token inválido' });
   }
-  console.log('>>> auth headers:', req.headers.authorization);
-  console.log('>>> supabase.getUser →', { user, error });
+  // Avoid logging sensitive tokens
   
   req.user = user;    // <--- Inyecta aquí el user
   next();
