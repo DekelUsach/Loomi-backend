@@ -29,32 +29,55 @@ async function getNextId(tableName) {
   return Number.isFinite(maxId) ? maxId + 1 : 1;
 }
 
-async function insertPreLoadedTextWithOptionalFullText({ title, fullText }) {
+async function getUsersRowIdForAuthId(authId) {
+  if (!authId) return null;
+  const { data, error } = await supabase
+    .from('Users')
+    .select('id')
+    .eq('user_id', authId)
+    .single();
+  if (error) return null;
+  const rowId = Number.isFinite(Number(data?.id)) ? Number(data.id) : null;
+  return rowId;
+}
+
+async function insertPreLoadedTextWithOptionalFullText({ title, fullText, ownerAuthId }) {
   const safeTitle = String(title || '').trim() || String(fullText || '').slice(0, 120) || 'Texto sin título';
   const newId = await getNextId('preLoadedTexts');
-  let d, e;
-  try {
-    ({ data: d, error: e } = await supabase
+  // Intento 1: asociar con Users.id (entero) si existe
+  const userRowId = await getUsersRowIdForAuthId(ownerAuthId);
+  if (Number.isFinite(userRowId)) {
+    const t1 = await supabase
       .from('preLoadedTexts')
-      .insert({ id: newId, title: safeTitle, content: String(fullText || '') })
-      .select('id')
-      .single());
-  } catch (err) {
-    e = err;
-  }
-  if (e) {
-    const msg = String(e.message || '').toLowerCase();
-    const schemaMismatch = msg.includes('column') && msg.includes('content') && (msg.includes('does not exist') || msg.includes('no existe') || msg.includes('could not find'));
-    if (!schemaMismatch) throw new Error(`supabase_insert_preLoadedTexts_failed: ${e.message}`);
-    const fb = await supabase
-      .from('preLoadedTexts')
-      .insert({ id: newId, title: safeTitle })
+      .insert({ id: newId, title: safeTitle, userId: userRowId })
       .select('id')
       .single();
-    if (fb.error) throw new Error(`supabase_insert_preLoadedTexts_fallback_failed: ${fb.error.message}`);
-    return fb.data.id;
+    if (!t1.error) {
+      console.log(`[RAG] preLoadedTexts owner → Users.id=${userRowId}`);
+      return t1.data.id;
+    }
   }
-  return d.id;
+  // Intento 2: asociar con UUID del auth usando distintas columnas comunes
+  const candidateCols = ['ownerAuthId', 'authId', 'userAuthId', 'user_id'];
+  for (const col of candidateCols) {
+    const t = await supabase
+      .from('preLoadedTexts')
+      .insert({ id: newId, title: safeTitle, [col]: ownerAuthId })
+      .select('id')
+      .single();
+    if (!t.error) {
+      console.log(`[RAG] preLoadedTexts owner → ${col}=${ownerAuthId}`);
+      return t.data.id;
+    }
+  }
+  // Intento final: solo título
+  const fb = await supabase
+    .from('preLoadedTexts')
+    .insert({ id: newId, title: safeTitle })
+    .select('id')
+    .single();
+  if (fb.error) throw new Error(`supabase_insert_preLoadedTexts_fallback_failed: ${fb.error.message}`);
+  return fb.data.id;
 }
 
 async function insertPreLoadedParagraphs({ idText, paragraphs }) {
@@ -122,27 +145,68 @@ export async function uploadAndIndex(req, res) {
     console.log(`[RAG] Título a guardar: "${title}"`);
 
     // Guardar en Supabase (preLoadedTexts y preLoadedParagraphs)
-    const idText = await insertPreLoadedTextWithOptionalFullText({ title, fullText });
-    console.log(`[RAG] Insert preLoadedTexts OK. id=${idText}`);
-    await insertPreLoadedParagraphs({ idText, paragraphs: effectiveParagraphs });
+    const idTextPre = await insertPreLoadedTextWithOptionalFullText({ title, fullText, ownerAuthId: authUser.id });
+    console.log(`[RAG] Insert preLoadedTexts OK. id=${idTextPre}`);
+    await insertPreLoadedParagraphs({ idText: idTextPre, paragraphs: effectiveParagraphs });
     console.log(`[RAG] Insert preLoadedParagraphs OK. count=${effectiveParagraphs.length}`);
+
+    // Crear registro asociado al usuario en userLoadedTexts y usar ese id para indexar
+    let idTextUser = null;
+    try {
+      const userRowId = await getUsersRowIdForAuthId(authUser.id);
+      if (Number.isFinite(userRowId)) {
+        const { data: userTextRow, error: userTextErr } = await supabase
+          .from('userLoadedTexts')
+          .insert({ title, userId: userRowId })
+          .select('*')
+          .single();
+        if (!userTextErr && userTextRow?.id) {
+          idTextUser = userTextRow.id;
+          console.log(`[RAG] userLoadedTexts insert OK. id=${idTextUser} (userId=${userRowId})`);
+
+          // Insertar también los párrafos del usuario en userLoadedParagraphs
+          try {
+            const userParagraphRows = effectiveParagraphs.map((content, idx) => ({
+              content: String(content || ''),
+              imageURL: null,
+              order: idx + 1,
+              idText: Number(idTextUser)
+            }));
+            const { error: userParaErr } = await supabase
+              .from('userLoadedParagraphs')
+              .insert(userParagraphRows);
+            if (userParaErr) {
+              console.warn('[RAG] userLoadedParagraphs insert failed:', userParaErr.message);
+            } else {
+              console.log(`[RAG] userLoadedParagraphs insert OK. count=${userParagraphRows.length}`);
+            }
+          } catch (e) {
+            console.warn('[RAG] userLoadedParagraphs insert threw:', e?.message || e);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[RAG] userLoadedTexts insert failed:', e?.message || e);
+    }
+    // fallback si no se pudo crear userLoadedTexts
+    const idForIndex = idTextUser ?? idTextPre;
 
     // Indexar en LanceDB usando el id del texto como storyId
     let indexed = false;
     try {
       console.log('[RAG] Indexando en LanceDB...');
-      await indexStory(String(idText), fullText, title);
+      await indexStory(String(idForIndex), fullText, title);
       indexed = true;
       console.log('[RAG] Index LanceDB: OK');
       // Liberar memoria local para cumplir el requisito de no mantener en RAM
-      try { await releaseMemoryForStory(String(idText)); } catch (_) {}
+      try { await releaseMemoryForStory(String(idForIndex)); } catch (_) {}
     } catch (e) {
       console.warn('[RAG] LanceDB indexing failed, continuing without vector index:', e?.message || e);
     }
 
     return res.status(201).json({
       message: 'Texto cargado e indexado',
-      textId: idText,
+      textId: idForIndex,
       title,
       paragraphsCount: effectiveParagraphs.length,
       indexed,
