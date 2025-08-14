@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getAllUserTextsByUserId, getAllUserParagraphsByIdText, insertUserText, getLoadedTextsById, getAllLoadedParagraphsByIdText, insertUserParagraphs, getAllPreloadedTexts, getMyPreloadedTexts, getMyUserLoadedTexts } from '../controllers/textController.js';
+import { getAllUserTextsByUserId, getAllUserParagraphsByIdText, insertUserText, getLoadedTextsById, getAllLoadedParagraphsByIdText, insertUserParagraphs, getAllPreloadedTexts, getMyPreloadedTexts, getMyUserLoadedTexts, deleteTextByIdDeep } from '../controllers/textController.js';
 
 const router = Router();
 
@@ -14,6 +14,7 @@ router.get('/preloaded/texts', getAllPreloadedTexts);
 router.get('/preloaded/my-texts', getMyPreloadedTexts);
 router.get('/preloaded/texts/:id', getLoadedTextsById);
 router.get('/preloaded/paragraphs/:id', getAllLoadedParagraphsByIdText);
+router.delete('/delete/:id', deleteTextByIdDeep);
 
 /* Mis userLoadedTexts (por usuario autenticado) */
 router.get('/userloaded/my-texts', getMyUserLoadedTexts);

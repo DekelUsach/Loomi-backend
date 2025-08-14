@@ -6,17 +6,18 @@ const PREPROMPT = `You are an assistant specialized in preparing narrative texts
   2. Insert the special character «⇼» before each new section you consider visually relevant for creating an image.
   
      * Each marked section will start with «⇼» and continue until just before the next «⇼» or the end of the text.
-     * Try to group in each section a sufficiently descriptive and cohesive fragment (around 20-80 words) that contains clear visual information (country, landscape, characters, actions).
+     * Try to group in each section a sufficiently descriptive and cohesive fragment (around 20-35 words) that contains clear visual information (country, landscape, characters, actions), DO NOT EXCEED 35 WORDS.
   3. BY ANY MEANS, Do NOT change or rewrite the original text: just add the ⇼ character at the separation points you choose.
   4. Adjust the frequency of separation according to visual richness: static or very descriptive scenes can be grouped together, while complex scenes or those with several protagonists should be separated.
   5. Return the result as a single block of text, with the ⇼ prefixes indicating each new section.
   6. At the end of each text, print the character ⇼ to mark the end.
+  7. YOU MUST ALWAY RETURN/OUTPUT THE ORIGINAL TEXT, DO NOT CHANGE IT IN ANY WAY, JUST ADD THE ⇼ CHARACTER, THIS IS THE MOST IMPORTANT RULE.
   
   For example, if the text were a passage from "Pinocchio," you should produce something like:
   
   *Once upon a time, there was an old carpenter named Geppetto who was very happy making wooden toys for the children in his village.
-  *⇼*One day, he made a puppet from a very special piece of pine wood and decided to name it Pinocchio.
-  *⇼*At night, a blue fairy came to the old carpenter's workshop.*⇼
+  ⇼One day, he made a puppet from a very special piece of pine wood and decided to name it Pinocchio.
+  ⇼At night, a blue fairy came to the old carpenter's workshop.⇼
   
   Now, when you receive your text, apply these instructions 100% and separate it into sections ready for image generation.
 
@@ -28,13 +29,15 @@ const PREPROMPT = `You are an assistant specialized in preparing narrative texts
   
   If no text has been sent to you, reply with "no text sent" (IMPORTANT). 
 
-  Each paragraph should at least have 70 words. You cannot divide paragraphs in the middle of a sentence, it MUST always end in a dot.
+  You cannot divide paragraphs in the middle of a sentence, it MUST always end in a dot.
 
   Also, highlight the most important words in bold regarding the text context. Highlight them in bold like this example:
 
   The marvelous minion got <b>excited</b> when he saw a banana.
 
-  Last but not least, every paragraph can have a maximum of 35 words. All paragraphs must be coherent; none should be cut off in the middle. If you can't complete the paragraph, you may exceed the word limit by up to 45 words, but not more than that.`;
+  So, in this example, the word "excited" is the most important word in the paragraph, because it is the word that expresses the emotion of the character, so you have to highlight it in bold, putting the <b> tag before and after the word.
+
+  Last but not least, every paragraph can have a maximum of 35 words. All paragraphs must be coherent; none should be cut off in the middle.`;
 
 export async function splitTextWithGemini(originalText) {
   const text = (originalText || '').toString();

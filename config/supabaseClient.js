@@ -11,19 +11,31 @@ function pickEnv(...names) {
 }
 
 const SUPABASE_URL = pickEnv('SUPABASE_URL', 'VITE_SUPABASE_URL');
-// Prefer service role on backend; fallback to API/anon if not provided
-const SUPABASE_KEY = pickEnv(
-  'SUPABASE_SERVICE_ROLE_KEY',
-  'SUPABASE_API_KEY',
-  'SUPABASE_KEY',
-  'SUPABASE_ANON_KEY',
-  'VITE_SUPABASE_ANON_KEY'
-);
+const SERVICE_ROLE_KEY = pickEnv('SUPABASE_SERVICE_ROLE_KEY');
+const PUBLIC_KEY = pickEnv('SUPABASE_ANON_KEY', 'VITE_SUPABASE_ANON_KEY', 'SUPABASE_API_KEY', 'SUPABASE_KEY');
 
-if (!SUPABASE_URL || !SUPABASE_KEY) {
-  throw new Error('Supabase configuration missing. Please set SUPABASE_URL and a key (SUPABASE_SERVICE_ROLE_KEY or SUPABASE_API_KEY or SUPABASE_ANON_KEY).');
+if (!SUPABASE_URL) {
+  throw new Error('Supabase configuration missing. Please set SUPABASE_URL');
+}
+if (!SERVICE_ROLE_KEY && !PUBLIC_KEY) {
+  throw new Error('Supabase configuration missing. Provide SUPABASE_SERVICE_ROLE_KEY or SUPABASE_ANON_KEY');
 }
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+// Admin client (bypasses RLS) → default export for DB/storage writes
+const supabaseAdmin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY || PUBLIC_KEY, {
+  auth: { persistSession: false },
+});
+
+// Public client (RLS enforced) → for auth.getUser, etc.
+const supabaseAuth = createClient(SUPABASE_URL, PUBLIC_KEY || SERVICE_ROLE_KEY, {
+  auth: { persistSession: false },
+});
+
 console.log('SUPABASE_URL:', SUPABASE_URL);
-export default supabase;
+console.log('Supabase clients initialized:', {
+  adminKey: SERVICE_ROLE_KEY ? 'SERVICE_ROLE' : 'PUBLIC_FALLBACK',
+  authKey: PUBLIC_KEY ? 'ANON/API' : 'SERVICE_ROLE_FALLBACK',
+});
+
+export default supabaseAdmin;
+export { supabaseAdmin, supabaseAuth };

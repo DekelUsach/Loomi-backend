@@ -1,5 +1,6 @@
 // controllers/textController.js
-import supabase from '../config/supabaseClient.js';
+import supabase, { supabaseAuth } from '../config/supabaseClient.js';
+import { deleteStory, releaseMemoryForStory } from '../rag/index.js'
 
 /* User Loaded Texts */
 export const getAllUserTextsByUserId = async (req, res) => {
@@ -24,7 +25,7 @@ export const getMyUserLoadedTexts = async (req, res) => {
         return res.status(401).json({ error: 'Token no provisto' });
     }
     const token = authHeader.split(' ')[1];
-    const { data: authData, error: authError } = await supabase.auth.getUser(token);
+    const { data: authData, error: authError } = await supabaseAuth.auth.getUser(token);
     if (authError || !authData?.user?.id) {
         return res.status(401).json({ error: 'Token inválido' });
     }
@@ -151,7 +152,7 @@ export const getMyPreloadedTexts = async (req, res) => {
         return res.status(401).json({ error: 'Token no provisto' });
     }
     const token = authHeader.split(' ')[1];
-    const { data: authData, error: authError } = await supabase.auth.getUser(token);
+    const { data: authData, error: authError } = await supabaseAuth.auth.getUser(token);
     if (authError || !authData?.user?.id) {
         return res.status(401).json({ error: 'Token inválido' });
     }
@@ -228,4 +229,82 @@ export const getAllLoadedParagraphsByIdText = async (req, res) => {
     }
 
     res.json(data);
+}
+
+// Deep delete: LanceDB, supabase paragraphs/texts and storage images
+export const deleteTextByIdDeep = async (req, res) => {
+    try {
+        const { id } = req.params;
+        if (!id) return res.status(400).json({ error: 'id requerido' });
+
+        const authHeader = req.headers.authorization;
+        if (!authHeader?.startsWith('Bearer ')) {
+            return res.status(401).json({ error: 'Token no provisto' });
+        }
+        const token = authHeader.split(' ')[1];
+        const { data: authData, error: authError } = await supabaseAuth.auth.getUser(token);
+        if (authError || !authData?.user?.id) {
+            return res.status(401).json({ error: 'Token inválido' });
+        }
+
+        // Optional owner validation if userLoadedTexts exists
+        try {
+            const { data: userRow } = await supabase
+                .from('Users')
+                .select('id')
+                .eq('user_id', authData.user.id)
+                .maybeSingle();
+            if (userRow?.id) {
+                const { data: ut } = await supabase
+                    .from('userLoadedTexts')
+                    .select('id, userId')
+                    .eq('id', id)
+                    .maybeSingle();
+                if (ut && ut.userId && ut.userId !== userRow.id) {
+                    return res.status(403).json({ error: 'No autorizado para eliminar este texto' });
+                }
+            }
+        } catch (_) {}
+
+        const bucket = process.env.PARAGRAPH_IMAGES_BUCKET || 'paragraph-images';
+        const extractPath = (url) => {
+            if (!url) return null;
+            const marker = `/storage/v1/object/public/${bucket}/`;
+            const idx = String(url).indexOf(marker);
+            if (idx === -1) return null;
+            return String(url).slice(idx + marker.length);
+        };
+
+        const paths = [];
+        try {
+            const { data: uparas } = await supabase
+                .from('userLoadedParagraphs')
+                .select('imageURL')
+                .eq('idText', id);
+            (uparas || []).forEach(p => { const path = extractPath(p?.imageURL); if (path) paths.push(path); });
+        } catch (_) {}
+        try {
+            const { data: pparas } = await supabase
+                .from('preLoadedParagraphs')
+                .select('imageURL')
+                .eq('idText', id);
+            (pparas || []).forEach(p => { const path = extractPath(p?.imageURL); if (path) paths.push(path); });
+        } catch (_) {}
+
+        if (paths.length) {
+            try { await supabase.storage.from(bucket).remove(paths); } catch (_) {}
+        }
+
+        try { await supabase.from('userLoadedParagraphs').delete().eq('idText', id); } catch (_) {}
+        try { await supabase.from('userLoadedTexts').delete().eq('id', id); } catch (_) {}
+        try { await supabase.from('preLoadedParagraphs').delete().eq('idText', id); } catch (_) {}
+        try { await supabase.from('preLoadedTexts').delete().eq('id', id); } catch (_) {}
+
+        try { await deleteStory(String(id)); } catch (_) {}
+        try { await releaseMemoryForStory(String(id)); } catch (_) {}
+
+        return res.status(200).json({ ok: true });
+    } catch (err) {
+        return res.status(500).json({ error: err?.message || 'delete_failed' });
+    }
 }

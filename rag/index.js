@@ -194,7 +194,12 @@ async function retrieveTopK(storyId, question, topK = 5, minSim = 0.15, mmrLambd
   const mem = memoryByStory.get(storyId);
   if (mem && Array.isArray(mem.rows) && mem.rows.length) {
     const useGemini = mem.embedKind === 'gemini';
-    const qVector = useGemini ? await embedWithGemini(question) : await embedWithLocal(question);
+    let qVector;
+    try {
+      qVector = useGemini ? await embedWithGemini(question) : await embedWithLocal(question);
+    } catch (_) {
+      qVector = await embedWithLocal(question);
+    }
     const scoredMem = mem.rows.map(r => ({ ...r, _sim: cosineSimilarity(qVector, r.vector) }))
       .sort((a, b) => b._sim - a._sim);
 
@@ -246,7 +251,16 @@ async function retrieveTopK(storyId, question, topK = 5, minSim = 0.15, mmrLambd
     return reranked.slice(0, Math.max(topK, 6));
   }
 
-  const table = await getOrCreateTable();
+  // Si LanceDB no está disponible o la tabla aún no existe, devolvemos vacío
+  let table;
+  try {
+    const db = await getDb();
+    const names = await db.tableNames();
+    if (!names.includes(TABLE_NAME)) return [];
+    table = await getOrCreateTable([]);
+  } catch (_) {
+    return [];
+  }
   let useGemini = false;
   try {
     await embedWithGemini("ping");
@@ -445,13 +459,22 @@ function tryExtractiveAnswer(question, passages) {
 
 export async function askQuestion(storyId, question) {
   await ensureMemoryLoaded();
-  const top = await retrieveTopK(storyId, question, 6, 0.25, 0.7);
+  let top = [];
+  try {
+    top = await retrieveTopK(storyId, question, 6, 0.25, 0.7);
+  } catch (e) {
+    top = [];
+  }
   if (!top.length) {
     await ensureMemoryLoaded();
     const mem = memoryByStory.get(storyId);
     if (mem && Array.isArray(mem.rows) && mem.rows.length) {
       const globalCtx = buildGlobalContextText(mem.rows, 6000);
       const prompt = buildPrompt(question, [{ text: globalCtx }]);
+      try {
+        console.log('[RAG] Gemini prompt (global ctx) len=', String(prompt).length);
+        console.log('[RAG] Gemini prompt preview:', String(prompt).slice(0, 240), '...');
+      } catch (_) {}
       try {
         const answer = await generateWithGemini(prompt, {
           temperature: 0.5,
@@ -463,7 +486,7 @@ export async function askQuestion(storyId, question) {
       } catch (_) {}
     }
     // Si tampoco hay memoria, el texto no está aún disponible en el índice
-    return "El texto que estas solicitando, no existe";
+    return "El texto que estás solicitando no está listo en el índice aún. Probá en unos segundos o volvé a cargarlo.";
   }
 
   const extractive = tryExtractiveAnswer(question, top);
@@ -475,6 +498,10 @@ export async function askQuestion(storyId, question) {
 
   const prompt = buildPrompt(question, top);
   try {
+    console.log('[RAG] Gemini prompt len=', String(prompt).length);
+    console.log('[RAG] Gemini prompt preview:', String(prompt).slice(0, 240), '...');
+  } catch (_) {}
+  try {
     const answer = await generateWithGemini(prompt, {
       temperature: 0.5,
       topP: 0.8,
@@ -482,7 +509,11 @@ export async function askQuestion(storyId, question) {
       systemInstruction: "Tu eres LULU, la mascota virtual de Loomi. Eres amable, cercana y respondes en español. Basas tus respuestas en el contexto, pero cuando no hay una frase exacta, sintetizas conclusiones razonables. Si la pregunta no está relacionada con el texto, avisa amablemente y sugiere volver al contenido cargado."
     });
     if (answer && answer.trim()) return answer.trim();
-  } catch (_) {}
+  } catch (e) {
+    // Si Gemini no está configurado o falla, devolvemos una respuesta basada en el mejor pasaje
+    const best = top?.[0]?.text || "";
+    if (best) return `Según el texto: ${best.split(/[\.!?]/)[0]?.trim()}`;
+  }
 
   const first = top?.[0]?.text || "";
   return first ? `Te cuento de forma simple: ${first.split(/[\.\!\?]/)[0]?.trim()}` : "No pude generar una respuesta en este momento.";
@@ -492,8 +523,8 @@ async function maxStoryIdFromTable() {
   try {
     const db = await getDb();
     const names = await db.tableNames();
-    if (!names.includes(TABLE_NAME)) return -1;
-    const table = await getOrCreateTable();
+  if (!names.includes(TABLE_NAME)) return -1;
+  const table = await getOrCreateTable([]);
     const rows = await table.toArray();
     const ids = (Array.isArray(rows) ? rows : [])
       .map(r => Number.parseInt(String(r.storyId), 10))
