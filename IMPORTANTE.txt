@@ -1,0 +1,12 @@
+para hacer que funcione la extraccion de caracteres de un archivo .pdf, se deben instalar las siguientes dependencias que no se encuentran en package.json:
+
+      winget install -e --id GraphicsMagick.GraphicsMagick --silent
+      winget install -e --id ArtifexSoftware.Ghostscript --silent
+      GEMINI_API_KEY=AIzaSyDY0YmqZI4aJDb01Q1Kggfh95I-_v66rWU
+
+      
+SUPABASE_URL=https://snskgnsnvnpsofbuglfo.supabase.co
+SUPABASE_API_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNuc2tnbnNudm5wc29mYnVnbGZvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0ODYxMDU5MCwiZXhwIjoyMDY0MTg2NTkwfQ.iWCBi3_lE_GwuNl0JgxLTJ-hMWAd-YIK7ZtsMviGAdI
+FRONTEND_URL=http://localhost:5173
+GOOGLE_CLIENT_ID=603545489367-mosslp6dlf4j1b1lp55hmtl82sr7f39g.apps.googleusercontent.com
+SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNuc2tnbnNudm5wc29mYnVnbGZvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0ODYxMDU5MCwiZXhwIjoyMDY0MTg2NTkwfQ.iWCBi3_lE_GwuNl0JgxLTJ-hMWAd-YIK7ZtsMviGAdI
