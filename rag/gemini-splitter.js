@@ -43,12 +43,12 @@ export async function splitTextWithGemini(originalText) {
   const text = (originalText || '').toString();
   if (!text.trim()) return '';
   const prompt = `${PREPROMPT}\n\nBelow, I'll leave you the text to which you must apply these instructions:\n\n${text}`;
-  const result = await generateWithGeminiModel(prompt, "gemini-2.5-flash-lite", {
-    temperature: 0.2,
-    topP: 0.8,
-    maxTokens: 8192,
-    systemInstruction: "You split text by inserting the character ⇼ before each visually coherent section. Respond ONLY with the transformed text and a final ⇼."
-  });
+    const result = await generateWithGeminiModel(prompt, "gemini-2.5-flash", {
+      temperature: 0.2,
+      topP: 0.8,
+      maxTokens: 1048576,
+      systemInstruction: "You split text by inserting the character ⇼ before each visually coherent section. Respond ONLY with the transformed text and a final ⇼."
+    });
   return String(result || '').trim();
 }
 

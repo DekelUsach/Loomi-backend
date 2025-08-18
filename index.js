@@ -5,7 +5,7 @@ import textRoutes from './routes/textRoutes.js';
 import energyAndGemsRoutes from './routes/energyAndGemsRoutes.js';
 import ragRoutes from './routes/ragRoutes.js';
 import { getGems } from './controllers/energyAndGemsController.js';
-// process.env['NODE_TLS_REJECT_UNAUTHORIZED'] = '0';
+process.env['NODE_TLS_REJECT_UNAUTHORIZED'] = '0';
 dotenv.config();
 const app = express();
 import cors from 'cors';

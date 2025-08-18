@@ -3,6 +3,7 @@ import supabase from '../config/supabaseClient.js';
 import { indexStory, askQuestion, allocateNextStoryId, releaseMemoryForStory, storyExists } from '../rag/index.js';
 import { extractTextFromPdf, extractTextFromDocx, ocrSpaceExtract } from '../rag/ingest.js';
 import { splitTextWithGemini, splitIntoParagraphArray } from '../rag/gemini-splitter.js';
+import { generateWithGemini } from '../rag/llm-gemini.js';
 import fetch from 'node-fetch';
 
 // Simple in-memory progress store
@@ -443,4 +444,107 @@ export async function ask(req, res) {
   }
 }
 
+
+export async function generateQuiz(req, res) {
+  try {
+    const authUser = req.user;
+    if (!authUser?.id) return res.status(401).json({ error: 'No autenticado' });
+
+    const { textId, rawText } = req.body || {};
+    let sourceText = String(rawText || '').trim();
+
+    // Reconstrucción de texto a partir de textId si no nos mandaron rawText
+    if (!sourceText) {
+      if (!textId) return res.status(400).json({ error: 'Faltan parámetros: textId o rawText' });
+      try {
+        let fullText = '';
+        // Preferimos userLoadedParagraphs y userLoadedTexts (contenido del usuario)
+        const { data: uparas } = await supabase
+          .from('userLoadedParagraphs')
+          .select('content, order')
+          .eq('idText', textId)
+          .order('order', { ascending: true });
+        if (Array.isArray(uparas) && uparas.length) {
+          fullText = uparas.map(p => String(p.content || '')).join('\n\n');
+        }
+        if (!fullText) {
+          // Fallback a preLoadedParagraphs
+          const { data: pparas } = await supabase
+            .from('preLoadedParagraphs')
+            .select('content, order')
+            .eq('idText', textId)
+            .order('order', { ascending: true });
+          if (Array.isArray(pparas) && pparas.length) {
+            fullText = pparas.map(p => String(p.content || '')).join('\n\n');
+          }
+        }
+        sourceText = String(fullText || '').trim();
+      } catch (e) {
+        // noop, validaremos abajo
+      }
+    }
+
+    if (!sourceText || sourceText.length < 20) {
+      return res.status(422).json({ error: 'Texto insuficiente para generar formulario' });
+    }
+
+    const prompt = [
+      'Sos un asistente que genera formularios de opción múltiple basados en un texto dado.',
+      'Leé el texto y creá EXACTAMENTE 5 preguntas, cada una con 4 opciones (A, B, C, D).',
+      'Requisitos estrictos:',
+      '- Las preguntas y respuestas deben estar basadas en el contenido del texto.',
+      '- Debe haber 1 sola respuesta correcta por pregunta.',
+      '- El orden de las opciones debe ser aleatorio (no siempre la correcta en la misma letra).',
+      '- Formato de salida OBLIGATORIO, SOLO TEXTO PLANO, SIN COMENTARIOS NI EXPLICACIONES:',
+      '-Pregunta1 (la pregunta en cuestion)',
+      ' A. respuesta1',
+      ' B. respuesta2',
+      ' C. respuesta3',
+      ' D. respuesta4',
+      '-------------------------------------------------------------------',
+      '-Pregunta2 (la pregunta en cuestion)',
+      ' A. respuesta1',
+      ' B. respuesta2',
+      ' C. respuesta3',
+      ' D. respuesta4',
+      '-------------------------------------------------------------------',
+      '-Pregunta3 (la pregunta en cuestion)',
+      ' A. respuesta1',
+      ' B. respuesta2',
+      ' C. respuesta3',
+      ' D. respuesta4',
+      '-------------------------------------------------------------------',
+      '-Pregunta4 (la pregunta en cuestion)',
+      ' A. respuesta1',
+      ' B. respuesta2',
+      ' C. respuesta3',
+      ' D. respuesta4',
+      '-------------------------------------------------------------------',
+      '-Pregunta5 (la pregunta en cuestion)',
+      ' A. respuesta1',
+      ' B. respuesta2',
+      ' C. respuesta3',
+      ' D. respuesta4',
+      '',
+      'NO agregues soluciones ni marcas cuál es la correcta. NO incluyas nada más.',
+      '',
+      'Texto de referencia:',
+      sourceText
+    ].join('\n');
+
+    const quizText = await generateWithGemini(prompt, {
+      temperature: 0.4,
+      topP: 0.8,
+      maxTokens: 2048,
+      systemInstruction: 'Generar estrictamente el formulario pedido, en español, y solo con el formato indicado.'
+    });
+
+    const clean = String(quizText || '').trim();
+    if (!clean) return res.status(500).json({ error: 'No se pudo generar el formulario' });
+    return res.status(200).json({ quiz: clean });
+  } catch (err) {
+    console.error('[RAG] generateQuiz error:', err?.stack || err?.message || err);
+    return res.status(500).json({ error: err?.message || 'Error inesperado' });
+  }
+}
 
