@@ -355,6 +355,136 @@ export async function uploadAndIndex(req, res) {
       pushLog(progressId, `[RAG] LanceDB indexing failed: ${String(e?.message || e)}`);
     }
 
+    // Generar formulario opcionalmente durante la inserción
+    const shouldCreateQuizRaw = String(req.body?.createQuiz || '').toLowerCase();
+    const shouldCreateQuiz = ['true', '1', 'yes', 'on'].includes(shouldCreateQuizRaw);
+    let storedCount = 0;
+    if (shouldCreateQuiz) {
+      try {
+        pushLog(progressId, '[RAG] Generando formulario...');
+        // Reconstrucción del texto para el quiz (mismo flujo que generateQuiz)
+        let fullTextForQuiz = '';
+        try {
+          const { data: uparas } = await supabase
+            .from('userLoadedParagraphs')
+            .select('content, order')
+            .eq('idText', idForIndex)
+            .order('order', { ascending: true });
+          if (Array.isArray(uparas) && uparas.length) {
+            fullTextForQuiz = uparas.map(p => String(p.content || '')).join('\n\n');
+          }
+          if (!fullTextForQuiz) {
+            const { data: pparas } = await supabase
+              .from('preLoadedParagraphs')
+              .select('content, order')
+              .eq('idText', idForIndex)
+              .order('order', { ascending: true });
+            if (Array.isArray(pparas) && pparas.length) {
+              fullTextForQuiz = pparas.map(p => String(p.content || '')).join('\n\n');
+            }
+          }
+        } catch (_) {}
+        if (fullTextForQuiz && fullTextForQuiz.length >= 20) {
+          const prompt = [
+            'Sos un asistente que genera formularios de opción múltiple basados en un texto dado.',
+            'Leé el texto y creá EXACTAMENTE 5 preguntas, cada una con 4 opciones (A, B, C, D).',
+            'Requisitos estrictos:',
+            '- Las preguntas y respuestas deben estar basadas en el contenido del texto.',
+            '- Debe haber 1 sola respuesta correcta por pregunta.',
+            '- El orden de las opciones debe ser aleatorio (no siempre la correcta en la misma letra).',
+            '- Marcá al final de CADA opción si es correcta o incorrecta con " V" para verdadera y " F" para falsa. Ejemplo: "A. opción de ejemplo V" o "B. otra opción F".',
+            '- Formato de salida OBLIGATORIO, SOLO TEXTO PLANO, SIN COMENTARIOS NI EXPLICACIONES:',
+            '-Pregunta1 (la pregunta en cuestion)',
+            ' A. respuesta1 V/F',
+            ' B. respuesta2 V/F',
+            ' C. respuesta3 V/F',
+            ' D. respuesta4 V/F',
+            '-------------------------------------------------------------------',
+            '-Pregunta2 (la pregunta en cuestion)',
+            ' A. respuesta1 V/F',
+            ' B. respuesta2 V/F',
+            ' C. respuesta3 V/F',
+            ' D. respuesta4 V/F',
+            '-------------------------------------------------------------------',
+            '-Pregunta3 (la pregunta en cuestion)',
+            ' A. respuesta1 V/F',
+            ' B. respuesta2 V/F',
+            ' C. respuesta3 V/F',
+            ' D. respuesta4 V/F',
+            '-------------------------------------------------------------------',
+            '-Pregunta4 (la pregunta en cuestion)',
+            ' A. respuesta1 V/F',
+            ' B. respuesta2 V/F',
+            ' C. respuesta3 V/F',
+            ' D. respuesta4 V/F',
+            '-------------------------------------------------------------------',
+            '-Pregunta5 (la pregunta en cuestion)',
+            ' A. respuesta1 V/F',
+            ' B. respuesta2 V/F',
+            ' C. respuesta3 V/F',
+            ' D. respuesta4 V/F',
+            '',
+            'Texto de referencia:',
+            fullTextForQuiz
+          ].join('\n');
+          const quizText = await generateWithGemini(prompt, {
+            temperature: 0.4,
+            topP: 0.8,
+            maxTokens: 2048,
+            systemInstruction: 'Generar estrictamente el formulario pedido, en español, y solo con el formato indicado.'
+          });
+          const cleanQuiz = String(quizText || '').trim();
+          if (cleanQuiz) {
+            const parsed = (function parseQuizVF(text) {
+              const blocks = String(text || '')
+                .split(/[-–—]{3,}/g)
+                .map(s => s.trim())
+                .filter(Boolean);
+              const items = [];
+              for (const block of blocks) {
+                const lines = block.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+                if (!lines.length) continue;
+                const first = lines.shift();
+                const qMatch = first.replace(/^[-•\s]*/,'').replace(/^Pregunta\s*\d*[:\-\.]?\s*/i,'').trim();
+                const answers = [];
+                for (const ln of lines) {
+                  const m = ln.match(/^[A-Da-d][\)\.]\s*(.*)$/);
+                  const body = m ? m[1] : ln;
+                  const vfMatch = body.match(/\s([VvFf])\s*$/);
+                  const correct = vfMatch ? (vfMatch[1].toUpperCase() === 'V') : false;
+                  const content = vfMatch ? body.slice(0, vfMatch.index).trim() : body.trim();
+                  if (content) answers.push({ content, correct: Boolean(correct) });
+                }
+                if (qMatch && answers.length) items.push({ question: qMatch, answers });
+              }
+              return items;
+            })(cleanQuiz);
+            let count = 0;
+            for (const q of parsed) {
+              let formId = null;
+              try {
+                const ins = await supabase
+                  .from('forms')
+                  .insert({ user_id: authUser.id, question: q.question })
+                  .select('id')
+                  .single();
+                if (ins?.data?.id) formId = ins.data.id;
+              } catch (_) {}
+              if (formId) {
+                const rows = q.answers.map(a => ({ form_id: formId, content: a.content, correct: !!a.correct }));
+                try { await supabase.from('formanswers').insert(rows); } catch (_) {}
+                count += 1;
+              }
+            }
+            storedCount = count;
+            pushLog(progressId, `[RAG] Formulario generado y almacenado. preguntas=${count}`);
+          }
+        }
+      } catch (e) {
+        pushLog(progressId, `[RAG] Generación de formulario falló: ${String(e?.message || e)}`);
+      }
+    }
+
     setDone(progressId, { textId: idForIndex, title });
 
     return res.status(201).json({
@@ -363,6 +493,7 @@ export async function uploadAndIndex(req, res) {
       title,
       paragraphsCount: effectiveParagraphs.length,
       indexed,
+      quizStored: shouldCreateQuiz ? storedCount : undefined,
     });
   } catch (err) {
     console.error('[RAG] uploadAndIndex error:', err);
@@ -450,7 +581,7 @@ export async function generateQuiz(req, res) {
     const authUser = req.user;
     if (!authUser?.id) return res.status(401).json({ error: 'No autenticado' });
 
-    const { textId, rawText } = req.body || {};
+    const { textId, rawText, store } = req.body || {};
     let sourceText = String(rawText || '').trim();
 
     // Reconstrucción de texto a partir de textId si no nos mandaron rawText
@@ -495,38 +626,37 @@ export async function generateQuiz(req, res) {
       '- Las preguntas y respuestas deben estar basadas en el contenido del texto.',
       '- Debe haber 1 sola respuesta correcta por pregunta.',
       '- El orden de las opciones debe ser aleatorio (no siempre la correcta en la misma letra).',
+      '- Marcá al final de CADA opción si es correcta o incorrecta con " V" para verdadera y " F" para falsa. Ejemplo: "A. opción de ejemplo V" o "B. otra opción F".',
       '- Formato de salida OBLIGATORIO, SOLO TEXTO PLANO, SIN COMENTARIOS NI EXPLICACIONES:',
       '-Pregunta1 (la pregunta en cuestion)',
-      ' A. respuesta1',
-      ' B. respuesta2',
-      ' C. respuesta3',
-      ' D. respuesta4',
+      ' A. respuesta1 V/F',
+      ' B. respuesta2 V/F',
+      ' C. respuesta3 V/F',
+      ' D. respuesta4 V/F',
       '-------------------------------------------------------------------',
       '-Pregunta2 (la pregunta en cuestion)',
-      ' A. respuesta1',
-      ' B. respuesta2',
-      ' C. respuesta3',
-      ' D. respuesta4',
+      ' A. respuesta1 V/F',
+      ' B. respuesta2 V/F',
+      ' C. respuesta3 V/F',
+      ' D. respuesta4 V/F',
       '-------------------------------------------------------------------',
       '-Pregunta3 (la pregunta en cuestion)',
-      ' A. respuesta1',
-      ' B. respuesta2',
-      ' C. respuesta3',
-      ' D. respuesta4',
+      ' A. respuesta1 V/F',
+      ' B. respuesta2 V/F',
+      ' C. respuesta3 V/F',
+      ' D. respuesta4 V/F',
       '-------------------------------------------------------------------',
       '-Pregunta4 (la pregunta en cuestion)',
-      ' A. respuesta1',
-      ' B. respuesta2',
-      ' C. respuesta3',
-      ' D. respuesta4',
+      ' A. respuesta1 V/F',
+      ' B. respuesta2 V/F',
+      ' C. respuesta3 V/F',
+      ' D. respuesta4 V/F',
       '-------------------------------------------------------------------',
       '-Pregunta5 (la pregunta en cuestion)',
-      ' A. respuesta1',
-      ' B. respuesta2',
-      ' C. respuesta3',
-      ' D. respuesta4',
-      '',
-      'NO agregues soluciones ni marcas cuál es la correcta. NO incluyas nada más.',
+      ' A. respuesta1 V/F',
+      ' B. respuesta2 V/F',
+      ' C. respuesta3 V/F',
+      ' D. respuesta4 V/F',
       '',
       'Texto de referencia:',
       sourceText
@@ -541,10 +671,113 @@ export async function generateQuiz(req, res) {
 
     const clean = String(quizText || '').trim();
     if (!clean) return res.status(500).json({ error: 'No se pudo generar el formulario' });
-    return res.status(200).json({ quiz: clean });
+
+    function parseQuizVF(text) {
+      const blocks = String(text || '')
+        .split(/[-–—]{3,}/g)
+        .map(s => s.trim())
+        .filter(Boolean);
+      const items = [];
+      for (const block of blocks) {
+        const lines = block.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+        if (!lines.length) continue;
+        const first = lines.shift();
+        // remove leading dash and identifier
+        const qMatch = first.replace(/^[-•\s]*/,'').replace(/^Pregunta\s*\d*[:\-\.]?\s*/i,'').trim();
+        const answers = [];
+        for (const ln of lines) {
+          const m = ln.match(/^[A-Da-d][\)\.]\s*(.*)$/);
+          const body = m ? m[1] : ln;
+          // correctness marker at end: V or F
+          const vfMatch = body.match(/\s([VvFf])\s*$/);
+          const correct = vfMatch ? (vfMatch[1].toUpperCase() === 'V') : false;
+          const content = vfMatch ? body.slice(0, vfMatch.index).trim() : body.trim();
+          if (content) answers.push({ content, correct: Boolean(correct) });
+        }
+        if (qMatch && answers.length) items.push({ question: qMatch, answers });
+      }
+      return items;
+    }
+
+    let stored = [];
+    if (store) {
+      try {
+        const parsed = parseQuizVF(clean);
+        for (const q of parsed) {
+          // Insert into forms
+          let formId = null;
+          try {
+            const ins = await supabase
+              .from('forms')
+              .insert({ user_id: authUser.id, question: q.question })
+              .select('id, question')
+              .single();
+            if (ins?.data?.id) formId = ins.data.id;
+          } catch (_) {}
+          if (formId) {
+            const rows = q.answers.map(a => ({ form_id: formId, content: a.content, correct: !!a.correct }));
+            try { await supabase.from('formanswers').insert(rows); } catch (_) {}
+            stored.push({ id: formId, question: q.question, answers: q.answers });
+          }
+        }
+      } catch (e) {
+        console.warn('[RAG] parse/store quiz failed:', e?.message || e);
+      }
+    }
+
+    return res.status(200).json({ quiz: clean, storedCount: stored.length, stored });
   } catch (err) {
     console.error('[RAG] generateQuiz error:', err?.stack || err?.message || err);
     return res.status(500).json({ error: err?.message || 'Error inesperado' });
   }
 }
 
+
+export async function getMyForms(req, res) {
+  try {
+    const authUser = req.user;
+    if (!authUser?.id) return res.status(401).json({ error: 'No autenticado' });
+    const limit = Math.max(1, Math.min(50, Number(req.query.limit || 5)));
+    const { data: forms, error } = await supabase
+      .from('forms')
+      .select('id, question, created_at')
+      .eq('user_id', authUser.id)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error) return res.status(500).json({ error: error.message });
+    const formIds = Array.isArray(forms) ? forms.map(f => f.id) : [];
+    let answersByForm = new Map();
+    if (formIds.length) {
+      const { data: answers, error: aerr } = await supabase
+        .from('formanswers')
+        .select('id, form_id, content, correct')
+        .in('form_id', formIds);
+      if (aerr) return res.status(500).json({ error: aerr.message });
+      answersByForm = answers.reduce((map, a) => {
+        const arr = map.get(a.form_id) || [];
+        arr.push({ id: a.id, content: a.content, correct: !!a.correct });
+        map.set(a.form_id, arr);
+        return map;
+      }, new Map());
+    }
+    function shuffleInPlace(arr) {
+      for (let i = arr.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(Math.random() * (i + 1));
+        const tmp = arr[i];
+        arr[i] = arr[j];
+        arr[j] = tmp;
+      }
+      return arr;
+    }
+    const payload = (forms || []).map(f => {
+      const ans = answersByForm.get(f.id) || [];
+      // Desordenar respuestas en backend
+      const shuffled = shuffleInPlace([...ans]);
+      return { ...f, answers: shuffled };
+    });
+    return res.status(200).json({ forms: payload });
+  } catch (err) {
+    console.error('[RAG] getMyForms error:', err?.stack || err?.message || err);
+    return res.status(500).json({ error: err?.message || 'Error inesperado' });
+  }
+}
